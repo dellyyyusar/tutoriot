@@ -2,6 +2,8 @@
 #include <SPI.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <ArduinoJson.h>
+
 
 // Constants for LoRa configuration
 #define LORA_SS 5
@@ -24,6 +26,8 @@ float voltage1 = 0.00;
 float current1 = 0.00;
 float power1 = 0.00;
 float energy1 = 0.00;
+
+String payload;
 
 void setupWiFi() {
   Serial.println("Connecting to WiFi...");
@@ -77,10 +81,8 @@ void sendHttpGetRequest() {
   int httpCodeGet = http.GET();
 
   if (httpCodeGet > 0) {
-    String payload = http.getString();
+    payload = http.getString();
     Serial.println("Response (GET): " + payload);
-
-    // Process your GET response here
 
   } else {
     Serial.println("HTTP GET request failed");
@@ -108,7 +110,6 @@ void loop() {
       Serial.println("Received data: " + receivedData);
 
       // Parse and process your received data here
-
       int colonIndex = receivedData.indexOf(':');
       int vPipeIndex = receivedData.indexOf('|', colonIndex);
       int iPipeIndex = receivedData.indexOf('|', vPipeIndex + 1);
@@ -128,8 +129,47 @@ void loop() {
       power1 = power.toFloat();
       energy1 = energy.toFloat();
     }
-
-    sendHttpPostRequest();
-    sendHttpGetRequest();
   }
+    // Data JSON yang akan di-parse
+  String jsonString = "{\"status\":\"mati\",\"device_id\":\"2020\"}";
+
+  // Ubah String ke const char*
+  const char* json = jsonString.c_str();
+
+  // Ukuran buffer yang cukup besar untuk menyimpan struktur JSON
+  const size_t capacity = JSON_OBJECT_SIZE(2) + 40;
+  DynamicJsonDocument doc(capacity);
+
+  // Parse JSON
+  DeserializationError error = deserializeJson(doc, json);
+
+  // Cek apakah parsing berhasil
+  if (error) {
+    Serial.print(F("Gagal parsing JSON! Error code: "));
+    Serial.println(error.c_str());
+    return;
+  }
+
+  // Ambil nilai dari JSON
+  const char* status = doc["status"];
+  const char* device_id = doc["device_id"];
+
+  // Tampilkan nilai yang diambil
+  Serial.print(F("Status: "));
+  Serial.println(status);
+  Serial.print(F("Device ID: "));
+  Serial.println(device_id);
+
+  
+  // Perform HTTP requests outside the LoRa block
+  sendHttpPostRequest();
+  sendHttpGetRequest();
+  // Send LoRa payload
+  String dataKirim = "id:" + String(device_id) + "|status:" + String (status);
+  LoRa.beginPacket();
+  LoRa.print(dataKirim);
+  LoRa.endPacket();
+  Serial.println(payload);
+// fix betul
+  delay(1000);  // Adjust this delay based on your application requirements
 }
