@@ -1,14 +1,23 @@
+#include <PZEM004Tv30.h>
 #include <SPI.h>
 #include <LoRa.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <stdio.h>
 
-LiquidCrystal_I2C lcd(0x27, 20, 3);
 
-const int csPin = 7;
-const int resetPin = 6;
-const int irqPin = 1;
+const int csPin = 10;
+const int resetPin = 9;
+const int irqPin = 2;
+
+const int pinRelayOut = 7;
+const int pinRelayDis = 6;
+const int pinRelayCon = 5;
+
+
+LiquidCrystal_I2C lcd(0x27, 20, 3);
+PZEM004Tv30 pzem(3, 4); // Software Serial pin 8 (RX) & 9 (TX)
+
 
 byte localAddress = 0xAA;
 byte destinationAddress = 0xBB;
@@ -19,23 +28,39 @@ int device_id = 2020;
 
 void setup() {
   Serial.begin(9600);
-  while (!Serial)
-    ;
+
+  pinMode(pinRelayOut, OUTPUT);
+  pinMode(pinRelayDis, OUTPUT);
+  pinMode(pinRelayCon, OUTPUT);
+  digitalWrite(pinRelayOut, HIGH);
+  digitalWrite(pinRelayCon, HIGH);
+  digitalWrite(pinRelayDis, HIGH);
+
+
+
+  while (!Serial) {}
   Serial.println("LoRa Sender");
+  LoRa.setPins(csPin, resetPin, irqPin);
 
   while (!LoRa.begin(433E6))  //433E6 - Asia, 866E6 - Europe, 915E6 - North America
   {
     Serial.println(".");
+    digitalWrite(pinRelayDis, HIGH);
   }
 
   Serial.println("LoRa Initializing OK!");
 
-  lcd.init();       // Initialize the LCD
+  lcd.begin();      // Initialize the LCD
   lcd.backlight();  // Turn on the backlight
   lcd.print("Hello");
 }
 void loop() {
+    // float voltage1 = pzem.voltage();
+    // Serial.println(voltage1);
+
   if (millis() - lastSendTime > interval) {
+    digitalWrite(pinRelayCon, LOW);
+
     String sensorData = String(count++);
     sendMessage(sensorData);
 
@@ -51,6 +76,8 @@ void loop() {
 }
 
 void sendMessage(String outgoing) {
+  float voltage1 = pzem.voltage();
+    // Serial.println(voltage1);
   float voltage = rand() % 100;
   float current = rand() % 100;
   float energy = rand() % 100;
@@ -87,6 +114,8 @@ void receiveMessage(int packetSize) {
 
   if (recipient != localAddress) {
     Serial.println("Error: Recipient address does not match local address");
+    Serial.println("Recipient address: " + String(recipient, HEX));
+    Serial.println("Local address: " + String(localAddress, HEX));
     return;
   }
 
@@ -124,7 +153,6 @@ void receiveMessage(int packetSize) {
 
       if (status == "mati") {
         Serial.println("ledmati");
-        
       }
       if (status == "hidup" && id == String(device_id)) {
         Serial.println("ledhidup");
