@@ -1,0 +1,181 @@
+#include <PZEM004Tv30.h>
+#include <SPI.h>
+#include <LoRa.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <stdio.h>
+
+
+const int csPin = 10;
+const int resetPin = 9;
+const int irqPin = 2;
+
+const int pinRelayOut = 7;
+const int pinRelayDis = 6;
+const int pinRelayCon = 5;
+
+
+LiquidCrystal_I2C lcd(0x27, 20, 3);
+PZEM004Tv30 pzem(3, 4);  // Software Serial pin 8 (RX) & 9 (TX)
+
+
+byte localAddress = 0xAA;
+byte destinationAddress = 0xBB;
+long lastSendTime = 0;
+int interval = 2000;
+int count = 0;
+int device_id = 2020;
+
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(pinRelayOut, OUTPUT);
+  pinMode(pinRelayDis, OUTPUT);
+  pinMode(pinRelayCon, OUTPUT);
+  digitalWrite(pinRelayOut, HIGH);
+  digitalWrite(pinRelayCon, HIGH);
+  digitalWrite(pinRelayDis, HIGH);
+
+
+
+  while (!Serial) {}
+  Serial.println("LoRa Sender");
+  LoRa.setPins(csPin, resetPin, irqPin);
+
+  while (!LoRa.begin(433E6))  //433E6 - Asia, 866E6 - Europe, 915E6 - North America
+  {
+    Serial.println(".");
+    digitalWrite(pinRelayDis, HIGH);
+  }
+
+  Serial.println("LoRa Initializing OK!");
+
+  lcd.begin();      // Initialize the LCD
+  lcd.backlight();  // Turn on the backlight
+  lcd.print("Hello");
+}
+void loop() {
+  // float voltage1 = pzem.voltage();
+  // Serial.println(voltage1);
+
+  if (millis() - lastSendTime > interval) {
+    digitalWrite(pinRelayDis, LOW);
+    String sensorData = String(count++);
+    sendMessage(sensorData);
+
+    Serial.print("Sending data ");
+    Serial.print(" from 0x" + String(localAddress, HEX));
+    Serial.println(" to 0x" + String(destinationAddress, HEX));
+
+    lastSendTime = millis();
+    interval = random(2000) + 1000;
+
+  }
+  receiveMessage(LoRa.parsePacket());
+
+
+  // receiveMessage(LoRa.parsePacket());
+}
+
+void sendMessage(String outgoing) {
+  // float voltage1 = pzem.voltage();
+  //   // Serial.println(voltage1);
+  // float voltage = rand() % 100;
+  // float current = rand() % 100;
+  // float energy = rand() % 100;
+  // float power = rand() % 100;
+  float voltage = pzem.voltage();
+  float current = pzem.current();
+  float power = pzem.power();
+  float energy = pzem.energy();
+
+  float device_id = 2910;
+
+  String data = "id:" + String(device_id) + "|V:" + String(voltage) + "|I:" + String(current) + "|P:" + String(power) + "|E:" + String(energy);
+  Serial.println(data);
+
+  LoRa.beginPacket();
+  LoRa.write(destinationAddress);
+  LoRa.write(localAddress);
+  LoRa.write(outgoing.length());
+  LoRa.print(data);
+  LoRa.endPacket();
+}
+
+void receiveMessage(int packetSize) {
+  // if (packetSize == 0) return;
+
+  int recipient = LoRa.read();
+  byte sender = LoRa.read();
+  byte incomingLength = LoRa.read();
+
+  String incoming = "";
+
+  while (LoRa.available()) {
+    incoming += (char)LoRa.read();
+  }
+
+  // if (incomingLength != incoming.length()) {
+  //   Serial.println("Error: Message length does not match length");
+  //   return;
+  // }
+
+  if (recipient != localAddress) {
+    Serial.println("Error: Recipient address does not match local address");
+    Serial.println("Recipient address: " + String(recipient, HEX));
+    Serial.println("Local address: " + String(localAddress, HEX));
+    return;
+  }
+
+  Serial.print("Received data " + incoming);
+  Serial.print(" from 0x" + String(sender, HEX));
+  Serial.println(" to 0x" + String(recipient, HEX));
+  // Find "id:" and "status:" in the received packet
+  int idPosition = incoming.indexOf("id:");
+  int statusPosition = incoming.indexOf("status:");
+
+  // Check if "id:" and "status:" are found
+  if (idPosition != -1 && statusPosition != -1) {
+    // Extract id and status
+    int idEnd = incoming.indexOf('|', idPosition);  // Find the position of '|' after "id:"
+    if (idEnd != -1) {
+      String id = incoming.substring(idPosition + 3, idEnd);
+      String status = incoming.substring(statusPosition + 7);  // Length of "status:" is 7
+
+      // Print the extracted values
+      Serial.print("ID: ");
+      Serial.println(id);
+      Serial.print("Status: ");
+      Serial.println(status);
+      lcd.clear();
+      lcd.setCursor(1, 0);
+      lcd.print("id");
+      lcd.setCursor(5, 0);
+      lcd.print(id);
+      lcd.setCursor(1, 1);
+      lcd.print("Status: ");
+      lcd.setCursor(9, 1);
+      lcd.print(status);
+      lcd.setCursor(0, 2);
+      lcd.print(incoming);
+
+      if (status == "mati") {
+        Serial.println("ledmati");
+        digitalWrite(pinRelayOut, HIGH);
+
+      }
+      if (status == "hidup" && id == String(device_id)) {
+        Serial.println("ledhidup");
+        digitalWrite(pinRelayOut, LOW);
+      }
+    } else {
+      // If '|' is not found after "id:", print an error message
+      Serial.println("Invalid packet format - Missing '|'");
+    }
+  } else {
+    // If "id:" or "status:" is not found, print an error message
+    Serial.println("ID or Status not found in the packet");
+  }
+  // Clear receivedData for the next packet
+  incoming = "";
+}
